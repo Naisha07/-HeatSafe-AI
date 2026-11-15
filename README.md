@@ -1,115 +1,94 @@
-# 🌡️ HeatSafe AI – Urban Heat Risk Mapping & Prediction
+# 🌍 HeatSafe AI – Urban Heat Risk Mapping
 
-**An AI-powered platform to identify urban heat risk across Delhi and provide recommendations for reducing heat exposure.**
+**Satellite-Based Urban Heat Monitoring for Delhi, India**
 
-🔗 **Live Demo:** https://heat-safe-ai-xi.vercel.app/  
-🔗 **API Documentation:** https://heatsafe-ai.onrender.com/docs
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-black?logo=vercel)](https://heat-safe-ai-xi.vercel.app/)
+[![Backend](https://img.shields.io/badge/Backend-Render-purple)](https://heatsafe-ai.onrender.com)
 
 ## 📌 Overview
 
-Rapid urbanisation, increasing built-up areas and declining vegetation contribute to rising urban temperatures. HeatSafe AI aims to make urban heat patterns easier to explore through an interactive dashboard and Machine Learning-based risk prediction.
+HeatSafe AI is a geospatial platform that analyses satellite data to identify urban heat patterns across the National Capital Territory (NCT) of Delhi.
 
-Users can explore selected Delhi locations, view environmental indicators and predict heat risk as **Low, Moderate or High**.
+It uses Landsat 8 and 9 satellite observations to study land surface temperature, vegetation density and built-up areas, providing interactive heat-risk maps and location-based environmental insights.
 
 ## ✨ Key Features
 
-- Interactive Delhi heat-risk dashboard.
-- Location search and map visualisation.
-- Environmental indicators: LST, NDVI, built-up percentage and population density.
-- Random Forest-based heat-risk prediction.
-- Risk-based recommendations to reduce heat trapping.
-- Health and safety suggestions based on predicted risk.
+- **Interactive Heat Map:** Visualise heat-risk patterns across Delhi.
+- **Satellite Analysis:** Explore multiple observation dates.
+- **Location Intelligence:** View environmental information for selected locations.
+- **Environmental Insights:** Get rule-based recommendations based on local conditions.
+- **Risk Distribution:** View Low, Moderate, High and Very High risk categories.
+- **Multi-Date Analysis:** Compare satellite-derived environmental indicators.
 
-## 🧠 Machine Learning
+## 🛰️ Data and Methodology
 
-**Algorithm:** Random Forest Classifier
+**Data Source:** Landsat 8/9 Collection 2 Level-2 via Microsoft Planetary Computer.
 
-**Input Features:**
+Environmental indicators:
 - Land Surface Temperature (LST)
 - Normalized Difference Vegetation Index (NDVI)
-- Built-up Area Percentage
-- Population Density
+- Normalized Difference Built-up Index (NDBI)
 
-**Output:** Low, Moderate or High heat risk.
+An experimental relative heat-risk index combines:
+- LST – 50%
+- Inverse NDVI – 25%
+- NDBI – 25%
+
+*The index is experimental and is not an official heat warning or validated health-risk prediction.*
 
 ## 🛠️ Tech Stack
 
 | Component | Technologies |
 |---|---|
 | Frontend | React.js, Vite, CSS |
-| Maps | React Leaflet, OpenStreetMap |
+| Mapping | Leaflet, React-Leaflet |
 | Backend | Python, FastAPI |
-| Machine Learning | Scikit-learn, Random Forest |
-| Data Processing | Pandas, NumPy |
+| Data Processing | NumPy, Pandas, Rasterio |
+| Satellite Data | Landsat 8/9 |
 | Deployment | Vercel, Render |
 | Version Control | Git, GitHub |
 
-## 🏗️ Project Structure
+## 📂 Project Structure
 
 ```text
--HeatSafe-AI/
+URBAN HEAT MAP/
 ├── Backend/
 │   ├── main.py
-│   ├── requirements.txt
-│   └── train_model.py
+│   └── requirements.txt
 ├── Frontend/
 │   ├── src/
-│   ├── package.json
-│   └── vite.config.js
-├── dataset/
-│   └── delhi_heat_data.csv
-├── models/
-│   └── heat_risk_model.joblib
-├── .gitignore
-└── README.md
+│   └── package.json
+├── data/
+│   ├── city_boundaries/
+│   └── satellite/
+├── satellite/
+│   └── processing scripts
+└── outputs/
+    └── satellite_maps/
 ```
 
-## ⚙️ Run Locally
+## 🚀 Live Deployment
 
-**1. Clone the repository**
+- **Frontend:** https://heat-safe-ai-xi.vercel.app/
+- **Backend:** https://heatsafe-ai.onrender.com
+- **GitHub:** https://github.com/Naisha07/-HeatSafe-AI
 
-```bash
-git clone https://github.com/Naisha07/-HeatSafe-AI.git
-cd -HeatSafe-AI
-```
+## 🔮 Future Scope
 
-**2. Start the backend**
+- Integration of real-time air-quality data.
+- Advanced machine-learning-based heat analysis.
+- Historical heat trend monitoring.
+- Population vulnerability analysis.
+- Expansion to other Indian cities.
 
-```bash
-cd Backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+## 📚 Resources
 
-**3. Start the frontend** in a separate terminal:
-
-```bash
-cd Frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` in your browser. For local development, configure the frontend API URL to `http://127.0.0.1:8000`.
-
-## ☁️ Deployment
-
-- **Frontend:** [Vercel](https://heat-safe-ai-xi.vercel.app/)
-- **Backend:** [Render](https://heatsafe-ai.onrender.com/)
-- **API Docs:** [FastAPI Documentation](https://heatsafe-ai.onrender.com/docs)
-
-## ⚠️ Dataset Disclaimer
-
-The current project uses a small illustrative dataset of 12 Delhi locations. Predictions are intended for demonstration and educational purposes, not validated real-world heat-risk assessments. Model confidence should not be interpreted as real-world accuracy.
-
-## 🚀 Future Scope
-
-- Integration of real satellite and weather data.
-- Expanded neighbourhood-level heat mapping.
-- Improved model training and validation.
-- Heat-risk forecasting and alerts.
+- [USGS Landsat](https://www.usgs.gov/landsat-missions)
+- [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com/)
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [React](https://react.dev/)
+- [Leaflet](https://leafletjs.com/)
 
 ---
 
-**🌍 Building cooler and safer cities with AI.**
+**HeatSafe AI – Making Urban Heat Patterns Visible Through Satellite Data and Environmental Intelligence.**
