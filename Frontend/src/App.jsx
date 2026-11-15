@@ -1,970 +1,867 @@
-
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import {
   MapContainer,
   TileLayer,
+  ImageOverlay,
   CircleMarker,
   Popup,
+  useMapEvents,
 } from "react-leaflet";
 
 import {
   getHealth,
+  getSatelliteDates,
+  getSatelliteStatistics,
   getLocations,
-  predictRisk,
+  getSatelliteBounds,
+  getSatelliteMapUrl,
+  getPlaceName,
 } from "./api";
 
-const RISK_COLORS = {
-  Low: "#16a34a",
-  Moderate: "#ca8a04",
-  High: "#dc2626",
+import "leaflet/dist/leaflet.css";
+import "./App.css";
+
+// ==========================================
+// RISK COLOURS
+// ==========================================
+
+const COLORS = {
+  Low: "#2ca25f",
+  Moderate: "#e5a000",
+  High: "#fd8d3c",
+  "Very High": "#bd0026",
 };
 
-function getRiskLabel(value) {
-  const labels = {
-    0: "Low",
-    1: "Moderate",
-    2: "High",
-  };
-
-  return labels[value] || "Unknown";
+function getRiskColor(level) {
+  return COLORS[level] || "#64748b";
 }
 
-function getRiskColor(risk) {
-  return RISK_COLORS[risk] || "#64748b";
+// ==========================================
+// MAP CLICK HANDLER
+// ==========================================
+
+function MapClickHandler({ locations, onSelect }) {
+  useMapEvents({
+    click(event) {
+      if (!locations.length) return;
+
+      let nearest = null;
+      let minDistance = Infinity;
+
+      locations.forEach((location) => {
+        const distance =
+          Math.pow(location.latitude - event.latlng.lat, 2) +
+          Math.pow(
+            (location.longitude - event.latlng.lng) *
+              Math.cos((event.latlng.lat * Math.PI) / 180),
+            2
+          );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearest = location;
+        }
+      });
+
+      if (nearest) onSelect(nearest);
+    },
+  });
+
+  return null;
 }
 
-// Recommendations based on predicted ML risk
-function getHeatRecommendations(riskLevel, location) {
-  const heatReduction = [
-    "Plant native trees and increase vegetation cover to provide shade and reduce surface heating.",
-    "Promote cool roofs and reflective building materials to reduce heat absorption.",
-    "Create shaded pedestrian pathways and shaded public spaces.",
-    "Protect existing parks, green belts and urban water bodies.",
-    "Encourage rooftop gardens and community plantation drives.",
-  ];
+// ==========================================
+// STATISTICS CARD
+// ==========================================
 
-  if (Number(location.ndvi) < 0.2) {
-    heatReduction.push(
-      "Vegetation levels in this sample are low. Prioritise tree plantation and the development of green spaces."
+function StatCard({ title, value, subtitle, color, icon }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-top">
+        <span>{title}</span>
+        <span className={`stat-icon ${color}`}>{icon}</span>
+      </div>
+
+      <strong>{value}</strong>
+      <small>{subtitle}</small>
+    </div>
+  );
+}
+
+// ==========================================
+// ENVIRONMENTAL INSIGHTS
+// ==========================================
+
+function getEnvironmentalInsights(location) {
+  if (!location) return [];
+
+  const insights = [];
+
+  const temperature = Number(location.lst_c);
+  const ndvi = Number(location.ndvi);
+  const ndbi = Number(location.ndbi);
+  const risk = Number(location.heat_risk);
+
+  // Heat exposure
+  if (risk >= 75 || temperature >= 40) {
+    insights.push({
+      title: "High heat exposure",
+      level: "High",
+      type: "danger",
+      description:
+        "This location has a high relative heat-risk score or elevated land surface temperature.",
+      suggestion:
+        "Prioritise shade, drinking-water facilities, cool roofs and heat-safety awareness.",
+    });
+  } else if (risk >= 50 || temperature >= 35) {
+    insights.push({
+      title: "Elevated heat conditions",
+      level: "Moderate",
+      type: "warning",
+      description:
+        "The satellite measurements indicate comparatively elevated heat conditions.",
+      suggestion:
+        "Increase shaded spaces, vegetation and reflective roofing where feasible.",
+    });
+  } else {
+    insights.push({
+      title: "Lower relative heat risk",
+      level: "Low",
+      type: "good",
+      description:
+        "The relative heat-risk score is lower than in higher-risk sampled locations.",
+      suggestion:
+        "Maintain existing green cover and continue monitoring seasonal changes.",
+    });
+  }
+
+  // Vegetation
+  if (ndvi < 0.2) {
+    insights.push({
+      title: "Limited vegetation cover",
+      level: "Needs attention",
+      type: "warning",
+      description:
+        "The NDVI value indicates relatively low vegetation activity.",
+      suggestion:
+        "Consider tree plantation, green corridors and protection of existing vegetation.",
+    });
+  } else if (ndvi >= 0.5) {
+    insights.push({
+      title: "Good vegetation signal",
+      level: "Positive",
+      type: "good",
+      description:
+        "The NDVI value indicates comparatively stronger vegetation activity.",
+      suggestion:
+        "Protect existing trees and green spaces and prevent unnecessary vegetation loss.",
+    });
+  }
+
+  // Built-up surface
+  if (ndbi > 0.1) {
+    insights.push({
+      title: "Elevated built-up signal",
+      level: "Elevated",
+      type: "warning",
+      description:
+        "The NDBI value indicates a relatively strong built-up surface signal.",
+      suggestion:
+        "Consider cool roofs, permeable surfaces and shaded pedestrian areas.",
+    });
+  }
+
+  // Pollution guidance
+  insights.push({
+    title: "Air pollution monitoring",
+    level: "External data needed",
+    type: "info",
+    description:
+      "Satellite LST, NDVI and NDBI do not measure ground-level PM2.5, PM10 or NO2.",
+    suggestion:
+      "Check current CPCB air-quality readings for this area. Follow official guidance during poor-air-quality periods.",
+  });
+
+  // Health guidance
+  insights.push({
+    title: "Heat and public health",
+    level: "Preventive guidance",
+    type: "info",
+    description:
+      "High outdoor heat exposure can increase the risk of heat-related illness, particularly for vulnerable groups.",
+    suggestion:
+      "Provide drinking water, shaded rest areas and heat-safety awareness for outdoor workers and residents.",
+  });
+
+  return insights;
+}
+
+// ==========================================
+// ENVIRONMENTAL INSIGHTS COMPONENT
+// ==========================================
+
+function EnvironmentalInsights({ location }) {
+  if (!location) {
+    return (
+      <section className="panel environmental-panel">
+        <div className="panel-heading">
+          <div>
+            <h3>Environmental Insights</h3>
+            <p>Location-based environmental observations and suggestions</p>
+          </div>
+        </div>
+
+        <div className="insights-empty">
+          Select a location on the map or use the random location button
+          to view environmental insights.
+        </div>
+      </section>
     );
   }
 
-  if (Number(location.built_up_pct) >= 75) {
-    heatReduction.push(
-      "Built-up coverage is high. Prioritise cool roofs, shaded streets and reflective surfaces."
-    );
-  }
+  const insights = getEnvironmentalInsights(location);
 
-  if (Number(location.population_density) >= 20000) {
-    heatReduction.push(
-      "Prioritise public drinking-water points, shaded waiting areas and heat-awareness campaigns in densely populated areas."
-    );
-  }
+  return (
+    <section className="panel environmental-panel">
+      <div className="panel-heading">
+        <div>
+          <h3>Environmental Insights</h3>
+          <p>
+            Environmental conditions and AI-assisted rule-based
+            recommendations for the selected location.
+          </p>
+        </div>
 
-  const healthAdvice = {
-    Low: [
-      "Stay hydrated throughout the day.",
-      "Wear light-coloured, breathable clothing when outdoors.",
-      "Use sunscreen, sunglasses and a hat in direct sunlight.",
-      "Take breaks in shaded areas during hot afternoons.",
-    ],
+        <span className="table-count">LOCATION ANALYSIS</span>
+      </div>
 
-    Moderate: [
-      "Drink water frequently, even before feeling thirsty.",
-      "Limit strenuous outdoor activities during peak afternoon heat.",
-      "Take regular breaks in shaded or cool places.",
-      "Wear loose, light-coloured cotton clothing.",
-      "Check on children, older adults and outdoor workers.",
-      "Keep indoor spaces cool and ventilated.",
-    ],
+      <div className="insights-grid">
+        {insights.map((insight, index) => (
+          <div
+            className={`insight-card ${insight.type}`}
+            key={index}
+          >
+            <div className="insight-heading">
+              <strong>{insight.title}</strong>
+              <span>{insight.level}</span>
+            </div>
 
-    High: [
-      "Avoid unnecessary outdoor exposure during the hottest hours.",
-      "Stay in a cool or air-conditioned place wherever possible.",
-      "Drink water regularly and avoid strenuous physical activity.",
-      "Check frequently on children, older adults and vulnerable people.",
-      "Never leave children or pets inside parked vehicles.",
-      "Seek urgent medical assistance for confusion, fainting or suspected heatstroke.",
-    ],
-  };
+            <p>{insight.description}</p>
 
-  return {
-    heatReduction,
-    healthAdvice: healthAdvice[riskLevel] || [],
-  };
+            <div className="insight-suggestion">
+              <strong>Suggested action</strong>
+              <p>{insight.suggestion}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
+
+// ==========================================
+// MAIN APPLICATION
+// ==========================================
 
 function App() {
-  const [locations, setLocations] = useState([]);
+  const [dates, setDates] = useState([]);
+  const [selectedDate, setSelectedDate] = useState("");
+
   const [health, setHealth] = useState(null);
+  const [statistics, setStatistics] = useState(null);
+  const [locations, setLocations] = useState([]);
+  const [bounds, setBounds] = useState(null);
+
+  const [selectedLocation, setSelectedLocation] = useState(null);
+
+  const [placeName, setPlaceName] = useState("");
+  const [placeAddress, setPlaceAddress] = useState("");
+  const [placeLoading, setPlaceLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [searchText, setSearchText] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState(null);
+  // ==========================================
+  // INITIALIZE BACKEND
+  // ==========================================
 
-  const [prediction, setPrediction] = useState(null);
-  const [predicting, setPredicting] = useState(false);
-  const [predictionError, setPredictionError] = useState("");
-
-  // Load backend data
   useEffect(() => {
-    async function loadDashboard() {
+    let cancelled = false;
+
+    async function initialize() {
+      try {
+        const [healthData, dateData] = await Promise.all([
+          getHealth(),
+          getSatelliteDates(),
+        ]);
+
+        if (cancelled) return;
+
+        setHealth(healthData);
+        setDates(dateData.dates || []);
+        setSelectedDate(dateData.default_date || "");
+
+        if (!dateData.default_date) {
+          setError("No processed satellite observations are available.");
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Unable to connect to backend.");
+          setLoading(false);
+        }
+      }
+    }
+
+    initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ==========================================
+  // LOAD SELECTED DATE DATA
+  // ==========================================
+
+  useEffect(() => {
+    if (!selectedDate) return;
+
+    let cancelled = false;
+
+    async function loadSatelliteData() {
       setLoading(true);
       setError("");
 
+      setSelectedLocation(null);
+      setPlaceName("");
+      setPlaceAddress("");
+
       try {
-        const [healthData, locationData] = await Promise.all([
-          getHealth(),
-          getLocations(),
+        const [stats, points, mapBounds] = await Promise.all([
+          getSatelliteStatistics(selectedDate),
+          getLocations(selectedDate),
+          getSatelliteBounds(selectedDate),
         ]);
 
-        setHealth(healthData);
-        setLocations(
-          Array.isArray(locationData) ? locationData : []
-        );
+        if (cancelled) return;
+
+        setStatistics(stats);
+        setLocations(points);
+        setBounds(mapBounds.bounds);
       } catch (err) {
-        console.error("Dashboard loading error:", err);
-        setError(err.message || "Unable to load dashboard.");
+        if (!cancelled) {
+          setError(err.message || "Unable to load satellite data.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
-    loadDashboard();
-  }, []);
+    loadSatelliteData();
 
-  // Dashboard statistics
-  const statistics = useMemo(() => {
-    const counts = {
-      Low: 0,
-      Moderate: 0,
-      High: 0,
+    return () => {
+      cancelled = true;
     };
+  }, [selectedDate]);
 
-    let totalTemperature = 0;
-    let temperatureCount = 0;
+  // ==========================================
+  // SELECT LOCATION AND IDENTIFY LOCALITY
+  // ==========================================
 
-    locations.forEach((location) => {
-      const risk = getRiskLabel(location.risk_class);
-
-      if (counts[risk] !== undefined) {
-        counts[risk]++;
-      }
-
-      const temperature = Number(location.lst_c);
-
-      if (Number.isFinite(temperature)) {
-        totalTemperature += temperature;
-        temperatureCount++;
-      }
-    });
-
-    return {
-      total: locations.length,
-      low: counts.Low,
-      moderate: counts.Moderate,
-      high: counts.High,
-      averageTemperature:
-        temperatureCount > 0
-          ? (totalTemperature / temperatureCount).toFixed(1)
-          : "—",
-    };
-  }, [locations]);
-
-  // Search location
-  function handleLocationSearch(event) {
-    const value = event.target.value;
-
-    setSearchText(value);
-
-    // Clear previous prediction when location changes
-    setPrediction(null);
-    setPredictionError("");
-
-    const found = locations.find(
-      (location) =>
-        location.location.toLowerCase() ===
-        value.trim().toLowerCase()
-    );
-
-    setSelectedLocation(found || null);
-  }
-
-  // Predict heat risk
-  async function handlePrediction(event) {
-    event.preventDefault();
-
-    setPrediction(null);
-    setPredictionError("");
-
-    if (!selectedLocation) {
-      setPredictionError(
-        "Please select a valid location from the suggestions."
-      );
-      return;
-    }
-
-    if (!health?.model_loaded) {
-      setPredictionError(
-        "ML model is not loaded. Please restart the backend."
-      );
-      return;
-    }
-
-    setPredicting(true);
+  async function identifyLocation(location) {
+    setSelectedLocation(location);
+    setPlaceName("");
+    setPlaceAddress("");
+    setPlaceLoading(true);
 
     try {
-      const result = await predictRisk({
-        lst_c: selectedLocation.lst_c,
-        ndvi: selectedLocation.ndvi,
-        built_up_pct: selectedLocation.built_up_pct,
-        population_density: selectedLocation.population_density,
-      });
-
-      setPrediction(result);
-    } catch (err) {
-      console.error("Prediction error:", err);
-
-      setPredictionError(
-        err.message || "Unable to generate prediction."
+      const result = await getPlaceName(
+        location.latitude,
+        location.longitude
       );
+
+      setPlaceName(result.name);
+      setPlaceAddress(result.fullAddress);
+    } catch (err) {
+      setPlaceName("Delhi area");
+      setPlaceAddress("Locality information unavailable.");
     } finally {
-      setPredicting(false);
+      setPlaceLoading(false);
     }
   }
 
-  const modelReady = health?.model_loaded === true;
+  // ==========================================
+  // RANDOM LOCATION
+  // ==========================================
 
-  // Recommendations appear only after successful prediction
-  const recommendations = prediction
-    ? getHeatRecommendations(
-        prediction.risk_level,
-        selectedLocation
-      )
-    : null;
+  function selectRandomLocation() {
+    if (!locations.length) return;
+
+    const randomIndex = Math.floor(Math.random() * locations.length);
+
+    identifyLocation(locations[randomIndex]);
+  }
+
+  // ==========================================
+  // CLEAR LOCATION
+  // ==========================================
+
+  function clearSelection() {
+    setSelectedLocation(null);
+    setPlaceName("");
+    setPlaceAddress("");
+  }
+
+  // ==========================================
+  // RISK DISTRIBUTION
+  // ==========================================
+
+  const riskDistribution = statistics?.risk_distribution || {};
+
+  // ==========================================
+  // UI
+  // ==========================================
 
   return (
-    <div style={styles.app}>
+    <div className="app">
 
       {/* HEADER */}
-      <header style={styles.header}>
-        <div>
-          <div style={styles.brand}>HEATSAFE AI</div>
 
-          <h1 style={styles.heading}>
-            Delhi Urban Heat Risk Dashboard
-          </h1>
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-icon">H</div>
 
-          <p style={styles.subtitle}>
-            Explore urban heat patterns and predict heat risk across Delhi.
-          </p>
+          <div>
+            <h1>
+              HEATSAFE <span>AI</span>
+            </h1>
+            <p>URBAN HEAT INTELLIGENCE · DELHI</p>
+          </div>
         </div>
 
-        <div style={styles.status}>
+        <div className="connection">
           <span
-            style={{
-              ...styles.statusDot,
-              background: modelReady ? "#22c55e" : "#ef4444",
-            }}
+            className={`status-dot ${
+              health ? "online" : "offline"
+            }`}
           />
-
-          {modelReady ? "ML Model Online" : "Model Offline"}
+          {health ? "Satellite API Connected" : "Connecting"}
         </div>
       </header>
 
-      <main style={styles.main}>
+      <main className="dashboard">
 
-        {loading && (
-          <div style={styles.message}>
-            Loading HeatSafe AI dashboard...
-          </div>
-        )}
+        {/* WELCOME */}
 
-        {error && (
-          <div style={styles.error}>
-            {error}
+        <section className="welcome">
+          <div>
+            <p className="eyebrow">
+              SATELLITE-BASED HEAT MONITORING
+            </p>
+
+            <h2>Delhi Urban Heat Dashboard</h2>
+
             <p>
-              Make sure your FastAPI backend is running at
-              http://127.0.0.1:8000.
+              Explore actual satellite-derived temperature,
+              vegetation and relative heat-risk patterns
+              across Delhi.
             </p>
           </div>
+
+          <label className="date-label">
+            <span>SATELLITE OBSERVATION</span>
+
+            <select
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              disabled={!dates.length}
+            >
+              {dates.map((date) => (
+                <option key={date} value={date}>
+                  {date}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
+
+        {/* ERROR */}
+
+        {error && (
+          <div className="error-banner">
+            {error}
+          </div>
         )}
 
-        {!loading && !error && (
+        {/* LOADING */}
+
+        {loading && (
+          <div className="panel loading-panel">
+            Loading actual Delhi satellite observations...
+          </div>
+        )}
+
+        {!loading && !error && statistics && (
           <>
+            {/* STATISTICS */}
 
-            {/* DASHBOARD STATISTICS */}
-            <section style={styles.statsGrid}>
+            <section className="stats-grid">
               <StatCard
-                title="Total Locations"
-                value={statistics.total}
-                color="#2563eb"
+                title="Average Surface Temperature"
+                value={`${statistics.lst_c.mean}°C`}
+                subtitle="Land surface temperature"
+                color="red"
+                icon="°C"
               />
 
               <StatCard
-                title="Average LST"
-                value={`${statistics.averageTemperature}°C`}
-                color="#ea580c"
+                title="Average Vegetation"
+                value={statistics.ndvi.mean}
+                subtitle="NDVI vegetation index"
+                color="green"
+                icon="ND"
               />
 
               <StatCard
-                title="High Risk Locations"
-                value={statistics.high}
-                color="#dc2626"
+                title="Average Built-up Index"
+                value={statistics.ndbi.mean}
+                subtitle="NDBI index"
+                color="yellow"
+                icon="BU"
               />
 
               <StatCard
-                title="Moderate Risk Locations"
-                value={statistics.moderate}
-                color="#ca8a04"
+                title="Mean Relative Heat Risk"
+                value={`${statistics.mean_heat_risk}/100`}
+                subtitle="Experimental satellite index"
+                color="orange"
+                icon="HR"
               />
             </section>
 
-            {/* HEAT MAP */}
-            <section style={styles.section}>
-              <h2 style={styles.sectionTitle}>
-                Delhi Heat Risk Map
-              </h2>
+            {/* MAP AND LOCATION INTELLIGENCE */}
 
-              <p style={styles.sectionDescription}>
-                Explore heat-risk categories across the available sample
-                locations. Click a marker to view its details.
-              </p>
+            <section className="main-grid">
 
-              <div style={styles.legend}>
-                {["Low", "Moderate", "High"].map((risk) => (
-                  <span key={risk} style={styles.legendItem}>
-                    <span
-                      style={{
-                        ...styles.legendDot,
-                        background: getRiskColor(risk),
-                      }}
-                    />
-                    {risk} Risk
+              {/* MAP */}
+
+              <div className="panel map-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h3>Delhi Heat Risk Map</h3>
+                    <p>
+                      Click anywhere on the map to inspect
+                      the nearest sampled satellite location.
+                    </p>
+                  </div>
+
+                  <span className="table-count">
+                    REAL SATELLITE DATA
                   </span>
-                ))}
+                </div>
+
+                <div className="map-container">
+                  {bounds && (
+                    <MapContainer
+                      key={selectedDate}
+                      bounds={bounds}
+                      boundsOptions={{ padding: [15, 15] }}
+                      scrollWheelZoom={true}
+                      className="leaflet-map"
+                    >
+                      <TileLayer
+                        attribution="&copy; OpenStreetMap contributors"
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+
+                      <ImageOverlay
+                        url={getSatelliteMapUrl(selectedDate)}
+                        bounds={bounds}
+                        opacity={0.78}
+                        zIndex={2}
+                      />
+
+                      <MapClickHandler
+                        locations={locations}
+                        onSelect={identifyLocation}
+                      />
+
+                      {selectedLocation && (
+                        <CircleMarker
+                          center={[
+                            selectedLocation.latitude,
+                            selectedLocation.longitude,
+                          ]}
+                          radius={9}
+                          pathOptions={{
+                            color: "#ffffff",
+                            weight: 3,
+                            fillColor: getRiskColor(
+                              selectedLocation.risk_level
+                            ),
+                            fillOpacity: 1,
+                          }}
+                        >
+                          <Popup>
+                            <strong>
+                              {placeName || "Selected location"}
+                            </strong>
+                            <br />
+                            LST: {selectedLocation.lst_c}°C
+                            <br />
+                            Risk: {selectedLocation.risk_level}
+                          </Popup>
+                        </CircleMarker>
+                      )}
+                    </MapContainer>
+                  )}
+                </div>
+
+                {/* MAP LEGEND */}
+
+                <div className="map-legend">
+                  {Object.entries(COLORS).map(([label, color]) => (
+                    <span key={label}>
+                      <i style={{ background: color }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="map-note">
+                  The raster displays the satellite-derived relative
+                  heat-risk index. Selectable points represent sampled
+                  valid satellite pixels.
+                </p>
               </div>
 
-              <div style={styles.mapWrapper}>
-                <MapContainer
-                  center={[28.6139, 77.2090]}
-                  zoom={10}
-                  scrollWheelZoom={true}
-                  style={styles.map}
+              {/* LOCATION INTELLIGENCE */}
+
+              <aside className="panel predictor">
+                <div className="panel-heading">
+                  <div>
+                    <h3>Location Intelligence</h3>
+                    <p>
+                      Explore environmental conditions at
+                      any sampled Delhi location.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="model-status">
+                  <span className="status-dot online" />
+                  Actual satellite measurements available
+                </div>
+
+                <button
+                  className="predict-button"
+                  onClick={selectRandomLocation}
+                  disabled={!locations.length}
                 >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
+                  ↗ Select Random Delhi Location
+                </button>
 
-                  {locations.map((location, index) => {
-                    const latitude = Number(location.latitude);
-                    const longitude = Number(location.longitude);
+                <p className="model-help">
+                  You can also click directly on the map.
+                  Random selection chooses one of the available
+                  sampled satellite grid points.
+                </p>
 
-                    const risk = getRiskLabel(location.risk_class);
+                {selectedLocation ? (
+                  <div className="location-result">
 
-                    if (
-                      !Number.isFinite(latitude) ||
-                      !Number.isFinite(longitude)
-                    ) {
-                      return null;
-                    }
+                    {/* LOCALITY */}
 
-                    return (
-                      <CircleMarker
-                        key={`${location.location}-${index}`}
-                        center={[latitude, longitude]}
-                        radius={10}
-                        pathOptions={{
-                          color: getRiskColor(risk),
-                          fillColor: getRiskColor(risk),
-                          fillOpacity: 0.75,
+                    <div className="result-heading">
+                      <div>
+                        <small>SELECTED LOCALITY</small>
+
+                        <strong>
+                          {placeLoading
+                            ? "Identifying locality..."
+                            : placeName || "Delhi area"}
+                        </strong>
+                      </div>
+
+                      <span
+                        className="risk-badge"
+                        style={{
+                          background: `${getRiskColor(
+                            selectedLocation.risk_level
+                          )}22`,
+                          color: getRiskColor(
+                            selectedLocation.risk_level
+                          ),
                         }}
                       >
-                        <Popup>
-                          <strong>{location.location}</strong>
-                          <br />
-                          Risk: {risk}
-                          <br />
-                          LST: {location.lst_c}°C
-                          <br />
-                          NDVI: {location.ndvi}
-                          <br />
-                          Built-up: {location.built_up_pct}%
-                        </Popup>
-                      </CircleMarker>
-                    );
-                  })}
-                </MapContainer>
-              </div>
-            </section>
+                        {selectedLocation.risk_level}
+                      </span>
+                    </div>
 
-            {/* LOCATION SEARCH */}
-            <section style={styles.section}>
-              <h2 style={styles.sectionTitle}>
-                Location-Based Heat Risk Prediction
-              </h2>
-
-              <p style={styles.sectionDescription}>
-                Search for a Delhi location. HeatSafe AI automatically
-                retrieves its environmental measurements and predicts
-                its heat-risk category.
-              </p>
-
-              <form onSubmit={handlePrediction}>
-                <label style={styles.field}>
-                  <span style={styles.fieldLabel}>
-                    Search Delhi Location
-                  </span>
-
-                  <input
-                    type="text"
-                    list="delhi-locations"
-                    placeholder="Type Connaught Place, Rohini, Saket..."
-                    value={searchText}
-                    onChange={handleLocationSearch}
-                    style={styles.input}
-                  />
-
-                  <datalist id="delhi-locations">
-                    {locations.map((location) => (
-                      <option
-                        key={location.location}
-                        value={location.location}
-                      />
-                    ))}
-                  </datalist>
-                </label>
-
-                {!selectedLocation && searchText.trim() !== "" && (
-                  <p style={styles.warning}>
-                    Select an exact location from the suggestions.
-                    Currently, only the 12 locations in your dataset
-                    are supported.
-                  </p>
-                )}
-
-                {/* SELECTED LOCATION DETAILS */}
-                {selectedLocation && (
-                  <div style={styles.locationCard}>
-                    <h3 style={styles.locationTitle}>
-                      {selectedLocation.location}
-                    </h3>
-
-                    <p style={styles.sectionDescription}>
-                      Environmental measurements retrieved from the dataset.
+                    <p className="place-address">
+                      {placeAddress ||
+                        `${selectedLocation.latitude.toFixed(5)}° N, ${selectedLocation.longitude.toFixed(5)}° E`}
                     </p>
 
-                    <div style={styles.valueGrid}>
-                      <ValueCard
-                        label="Land Surface Temperature"
-                        value={`${selectedLocation.lst_c}°C`}
-                      />
+                    {/* MEASUREMENTS */}
 
-                      <ValueCard
-                        label="NDVI"
-                        value={selectedLocation.ndvi}
-                      />
+                    <div className="location-metrics">
+                      <div>
+                        <span>Surface temperature</span>
+                        <strong>{selectedLocation.lst_c}°C</strong>
+                      </div>
 
-                      <ValueCard
-                        label="Built-up Area"
-                        value={`${selectedLocation.built_up_pct}%`}
-                      />
+                      <div>
+                        <span>Relative heat risk</span>
+                        <strong>{selectedLocation.heat_risk}/100</strong>
+                      </div>
 
-                      <ValueCard
-                        label="Population Density"
-                        value={Number(
-                          selectedLocation.population_density
-                        ).toLocaleString("en-IN")}
+                      <div>
+                        <span>Vegetation (NDVI)</span>
+                        <strong>{selectedLocation.ndvi}</strong>
+                      </div>
+
+                      <div>
+                        <span>Built-up index (NDBI)</span>
+                        <strong>{selectedLocation.ndbi}</strong>
+                      </div>
+                    </div>
+
+                    <button
+                      className="clear-button"
+                      onClick={clearSelection}
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                ) : (
+                  <div className="empty-selection">
+                    <div className="empty-icon">⌖</div>
+
+                    <strong>No location selected</strong>
+
+                    <p>
+                      Click the map or select a random Delhi location
+                      to see its satellite conditions and recommendations.
+                    </p>
+                  </div>
+                )}
+              </aside>
+            </section>
+
+            {/* ENVIRONMENTAL INSIGHTS - NOW BELOW MAP */}
+
+            <EnvironmentalInsights location={selectedLocation} />
+
+            {/* RISK DISTRIBUTION */}
+
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>Delhi Heat Risk Distribution</h3>
+
+                  <p>
+                    Based on{" "}
+                    {statistics.valid_pixels?.toLocaleString("en-IN") || 0}
+                    {" "}valid satellite pixels · {selectedDate}
+                  </p>
+                </div>
+              </div>
+
+              {Object.entries(COLORS).map(([label, color]) => {
+                const item = riskDistribution[label] || {
+                  pixels: 0,
+                  percentage: 0,
+                };
+
+                return (
+                  <div className="distribution-row" key={label}>
+                    <div className="distribution-label">
+                      <i style={{ background: color }} />
+                      {label}
+                    </div>
+
+                    <div className="distribution-bar">
+                      <div
+                        style={{
+                          width: `${item.percentage}%`,
+                          background: color,
+                        }}
                       />
                     </div>
 
-                    {/* PREDICTION BUTTON */}
-                    <button
-                      type="submit"
-                      disabled={predicting || !modelReady}
-                      style={{
-                        ...styles.button,
-                        opacity:
-                          predicting || !modelReady ? 0.6 : 1,
-                      }}
-                    >
-                      {predicting
-                        ? "Predicting..."
-                        : "Predict Heat Risk"}
-                    </button>
+                    <strong>{item.percentage}%</strong>
+
+                    <small>
+                      {item.pixels.toLocaleString("en-IN")} pixels
+                    </small>
                   </div>
-                )}
-              </form>
-
-              {predictionError && (
-                <div style={styles.error}>
-                  {predictionError}
-                </div>
-              )}
-
-              {/* ML PREDICTION RESULT */}
-              {prediction && (
-                <div style={styles.predictionResult}>
-                  <h3 style={styles.resultTitle}>
-                    AI Heat Risk Prediction
-                  </h3>
-
-                  <p style={styles.resultLocation}>
-                    Location: {selectedLocation.location}
-                  </p>
-
-                  <div
-                    style={{
-                      ...styles.resultRisk,
-                      color: getRiskColor(prediction.risk_level),
-                    }}
-                  >
-                    {prediction.risk_level} Risk
-                  </div>
-
-                  <p>
-                    Risk Class: {prediction.risk_class}
-                  </p>
-
-                  <p>
-                    Model Confidence: {prediction.confidence}%
-                  </p>
-
-                  <p style={styles.dataNote}>
-                    {prediction.data_status}
-                  </p>
-                </div>
-              )}
-
-              {/* RECOMMENDATIONS AFTER PREDICTION */}
-              {prediction && recommendations && (
-                <div
-                  style={{
-                    ...styles.adviceCard,
-                    borderTop: `5px solid ${getRiskColor(
-                      prediction.risk_level
-                    )}`,
-                  }}
-                >
-                  <h2 style={styles.sectionTitle}>
-                    Heat Reduction and Health Recommendations
-                  </h2>
-
-                  <p style={styles.sectionDescription}>
-                    Recommended actions for {selectedLocation.location},
-                    based on the predicted {prediction.risk_level} heat-risk category.
-                  </p>
-
-                  {/* HEAT REDUCTION */}
-                  <div style={styles.recommendationBlock}>
-                    <h3 style={styles.recommendationHeading}>
-                      🌳 Reduce Urban Heat Trapping
-                    </h3>
-
-                    <p style={styles.recommendationDescription}>
-                      Measures to reduce heat absorption, improve vegetation
-                      and make the surrounding environment cooler.
-                    </p>
-
-                    <ul style={styles.recommendationList}>
-                      {recommendations.heatReduction.map(
-                        (item, index) => (
-                          <li key={index}>{item}</li>
-                        )
-                      )}
-                    </ul>
-                  </div>
-
-                  {/* HEALTH ADVICE */}
-                  <div style={styles.recommendationBlock}>
-                    <h3 style={styles.recommendationHeading}>
-                      ❤️ Maintain Health and Prevent Heat Illness
-                    </h3>
-
-                    <p style={styles.recommendationDescription}>
-                      Personal safety measures to reduce heat exposure
-                      and prevent heat-related illnesses.
-                    </p>
-
-                    <ul style={styles.recommendationList}>
-                      {recommendations.healthAdvice.map(
-                        (item, index) => (
-                          <li key={index}>{item}</li>
-                        )
-                      )}
-                    </ul>
-                  </div>
-
-                  <p style={styles.adviceFooter}>
-                    These are general educational recommendations.
-                    Follow local public-health advisories during heatwaves.
-                  </p>
-                </div>
-              )}
+                );
+              })}
             </section>
 
-            {/* FOOTER */}
-            <footer style={styles.footer}>
-              <strong>HEATSAFE AI</strong>
-              <br />
-              Urban Heat Risk Mapping – Delhi
-              <br />
-              <span>
-                Demonstration project using an illustrative sample dataset.
-                Predictions are not validated real-world heat-risk assessments.
-              </span>
-            </footer>
+            {/* DATA INFORMATION */}
 
+            <section className="panel data-panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>Satellite Data Information</h3>
+                  <p>Observation and source details</p>
+                </div>
+              </div>
+
+              <div className="data-grid">
+                <div>
+                  <span>Satellite</span>
+                  <strong>Landsat 8/9</strong>
+                </div>
+
+                <div>
+                  <span>Dataset</span>
+                  <strong>Collection 2 Level 2</strong>
+                </div>
+
+                <div>
+                  <span>Observation</span>
+                  <strong>{selectedDate}</strong>
+                </div>
+
+                <div>
+                  <span>Data provider</span>
+                  <strong>Microsoft Planetary Computer</strong>
+                </div>
+              </div>
+
+              <p className="model-help">
+                LST is land surface temperature, not air temperature.
+                The heat-risk score is an experimental relative indicator,
+                not an official heat warning. Air pollution and disease
+                incidence are not measured by these satellite layers.
+              </p>
+            </section>
           </>
         )}
+
+        {/* FOOTER */}
+
+        <footer className="footer">
+          <strong>HEATSAFE AI</strong>
+
+          <span>
+            Satellite-Based Urban Heat Risk Mapping · Delhi
+          </span>
+
+          <span>
+            Academic project · Experimental environmental analysis
+          </span>
+        </footer>
       </main>
     </div>
   );
 }
-
-
-// STATISTICS CARD
-function StatCard({ title, value, color }) {
-  return (
-    <div style={styles.statCard}>
-      <p style={styles.statTitle}>{title}</p>
-
-      <h2 style={{ ...styles.statValue, color }}>
-        {value}
-      </h2>
-    </div>
-  );
-}
-
-
-// ENVIRONMENTAL VALUE CARD
-function ValueCard({ label, value }) {
-  return (
-    <div style={styles.valueCard}>
-      <p style={styles.valueLabel}>{label}</p>
-
-      <h3 style={styles.valueNumber}>
-        {value}
-      </h3>
-    </div>
-  );
-}
-
-
-// DASHBOARD STYLES
-const styles = {
-  app: {
-    minHeight: "100vh",
-    background: "#f1f5f9",
-    color: "#1e293b",
-    fontFamily: "Arial, sans-serif",
-  },
-
-  header: {
-    background: "#0f172a",
-    color: "white",
-    padding: "28px 5%",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "20px",
-    flexWrap: "wrap",
-  },
-
-  brand: {
-    color: "#38bdf8",
-    fontWeight: "bold",
-    letterSpacing: "2px",
-    fontSize: "13px",
-  },
-
-  heading: {
-    fontSize: "clamp(24px, 4vw, 34px)",
-    margin: "10px 0",
-  },
-
-  subtitle: {
-    color: "#cbd5e1",
-    margin: 0,
-    lineHeight: 1.6,
-  },
-
-  status: {
-    background: "#1e293b",
-    padding: "12px 18px",
-    borderRadius: "30px",
-    display: "flex",
-    alignItems: "center",
-    gap: "9px",
-    fontSize: "14px",
-  },
-
-  statusDot: {
-    height: "10px",
-    width: "10px",
-    borderRadius: "50%",
-  },
-
-  main: {
-    width: "90%",
-    maxWidth: "1250px",
-    margin: "30px auto",
-  },
-
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "18px",
-    marginBottom: "25px",
-  },
-
-  statCard: {
-    background: "white",
-    borderRadius: "14px",
-    padding: "22px",
-    boxShadow: "0 2px 10px rgba(15,23,42,0.05)",
-  },
-
-  statTitle: {
-    color: "#64748b",
-    fontSize: "14px",
-    margin: 0,
-  },
-
-  statValue: {
-    fontSize: "30px",
-    margin: "12px 0 0",
-  },
-
-  section: {
-    background: "white",
-    padding: "25px",
-    borderRadius: "14px",
-    marginBottom: "25px",
-    boxShadow: "0 2px 10px rgba(15,23,42,0.05)",
-  },
-
-  sectionTitle: {
-    fontSize: "22px",
-    margin: "0 0 10px",
-  },
-
-  sectionDescription: {
-    color: "#64748b",
-    fontSize: "14px",
-    lineHeight: 1.6,
-  },
-
-  legend: {
-    display: "flex",
-    gap: "20px",
-    flexWrap: "wrap",
-    margin: "18px 0",
-  },
-
-  legendItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "7px",
-    fontSize: "13px",
-  },
-
-  legendDot: {
-    height: "11px",
-    width: "11px",
-    borderRadius: "50%",
-  },
-
-  mapWrapper: {
-    height: "430px",
-    width: "100%",
-    borderRadius: "12px",
-    overflow: "hidden",
-    border: "1px solid #e2e8f0",
-  },
-
-  map: {
-    height: "100%",
-    width: "100%",
-  },
-
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "9px",
-    marginTop: "20px",
-    maxWidth: "600px",
-  },
-
-  fieldLabel: {
-    fontSize: "14px",
-    fontWeight: "bold",
-  },
-
-  input: {
-    padding: "14px",
-    border: "1px solid #cbd5e1",
-    borderRadius: "8px",
-    fontSize: "15px",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-
-  locationCard: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    padding: "22px",
-    borderRadius: "12px",
-    marginTop: "22px",
-  },
-
-  locationTitle: {
-    fontSize: "21px",
-    margin: "0 0 5px",
-  },
-
-  valueGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
-    marginTop: "20px",
-  },
-
-  valueCard: {
-    background: "white",
-    border: "1px solid #e2e8f0",
-    borderRadius: "9px",
-    padding: "15px",
-  },
-
-  valueLabel: {
-    fontSize: "12px",
-    color: "#64748b",
-    margin: 0,
-  },
-
-  valueNumber: {
-    fontSize: "20px",
-    margin: "9px 0 0",
-  },
-
-  button: {
-    background: "#2563eb",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    padding: "13px 22px",
-    fontSize: "15px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    marginTop: "20px",
-  },
-
-  warning: {
-    padding: "12px",
-    background: "#fef3c7",
-    color: "#92400e",
-    borderRadius: "8px",
-    marginTop: "15px",
-    fontSize: "14px",
-  },
-
-  predictionResult: {
-    background: "#f8fafc",
-    border: "1px solid #cbd5e1",
-    padding: "22px",
-    borderRadius: "12px",
-    marginTop: "22px",
-  },
-
-  resultTitle: {
-    marginTop: 0,
-  },
-
-  resultLocation: {
-    color: "#64748b",
-    fontSize: "14px",
-  },
-
-  resultRisk: {
-    fontSize: "30px",
-    fontWeight: "bold",
-    margin: "15px 0",
-  },
-
-  dataNote: {
-    color: "#64748b",
-    fontSize: "13px",
-  },
-
-  adviceCard: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-    borderRadius: "14px",
-    padding: "25px",
-    marginTop: "25px",
-    boxShadow: "0 2px 10px rgba(15,23,42,0.05)",
-  },
-
-  recommendationBlock: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    padding: "20px",
-    borderRadius: "10px",
-    marginTop: "18px",
-    lineHeight: 1.8,
-    color: "#334155",
-  },
-
-  recommendationHeading: {
-    fontSize: "18px",
-    marginTop: 0,
-    color: "#0f172a",
-  },
-
-  recommendationDescription: {
-    fontSize: "13px",
-    color: "#64748b",
-  },
-
-  recommendationList: {
-    paddingLeft: "22px",
-    lineHeight: 2,
-    fontSize: "14px",
-  },
-
-  adviceFooter: {
-    color: "#64748b",
-    fontSize: "12px",
-    marginTop: "20px",
-    lineHeight: 1.6,
-  },
-
-  error: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    padding: "15px",
-    borderRadius: "8px",
-    marginTop: "15px",
-  },
-
-  message: {
-    padding: "25px",
-    background: "white",
-    borderRadius: "10px",
-  },
-
-  footer: {
-    textAlign: "center",
-    color: "#64748b",
-    fontSize: "13px",
-    lineHeight: 1.8,
-    padding: "20px",
-  },
-};
 
 export default App;
