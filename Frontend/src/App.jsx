@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from "react";
 
 import {
@@ -17,6 +18,7 @@ import {
   getSatelliteBounds,
   getSatelliteMapUrl,
   getPlaceName,
+  getAQIForecast,
 } from "./api";
 
 import "leaflet/dist/leaflet.css";
@@ -275,6 +277,11 @@ function App() {
 
   const [selectedLocation, setSelectedLocation] = useState(null);
 
+  // AQI forecast state
+  const [aqiForecast, setAqiForecast] = useState([]);
+  const [aqiLoading, setAqiLoading] = useState(false);
+  const [aqiError, setAqiError] = useState("");
+
   const [placeName, setPlaceName] = useState("");
   const [placeAddress, setPlaceAddress] = useState("");
   const [placeLoading, setPlaceLoading] = useState(false);
@@ -367,6 +374,60 @@ function App() {
       cancelled = true;
     };
   }, [selectedDate]);
+
+  // ==========================================
+  // LOAD AQI FORECAST FOR SELECTED LOCATION
+  // ==========================================
+
+  useEffect(() => {
+    const latitude = selectedLocation?.latitude;
+    const longitude = selectedLocation?.longitude;
+
+    if (
+      latitude == null ||
+      longitude == null ||
+      !Number.isFinite(Number(latitude)) ||
+      !Number.isFinite(Number(longitude))
+    ) {
+      setAqiForecast([]);
+      setAqiError("");
+      setAqiLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAQI() {
+      setAqiLoading(true);
+      setAqiError("");
+      setAqiForecast([]);
+
+      try {
+        const data = await getAQIForecast(latitude, longitude);
+
+        if (!cancelled) {
+          setAqiForecast(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAqiError(err.message || "Unable to load AQI forecast.");
+        }
+      } finally {
+        if (!cancelled) {
+          setAqiLoading(false);
+        }
+      }
+    }
+
+    loadAQI();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedLocation?.latitude,
+    selectedLocation?.longitude,
+  ]);
 
   // ==========================================
   // SELECT LOCATION AND IDENTIFY LOCALITY
@@ -750,6 +811,83 @@ function App() {
                     </p>
                   </div>
                 )}
+
+                {/* 24-HOUR AQI FORECAST */}
+
+                {selectedLocation && (
+                  <div className="aqi-panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h3>24-Hour AQI Forecast</h3>
+                        <p>Air quality forecast for this location</p>
+                      </div>
+                    </div>
+
+                    <div className="model-status">
+                      <span className="status-dot online" />
+                      Open-Meteo Forecast · US AQI
+                    </div>
+
+                    {aqiLoading && (
+                      <p className="aqi-message">
+                        Loading AQI forecast...
+                      </p>
+                    )}
+
+                    {aqiError && (
+                      <p className="aqi-error">
+                        {aqiError}
+                      </p>
+                    )}
+
+                    {!aqiLoading && !aqiError && aqiForecast.length > 0 && (
+                      <>
+                        <div className="aqi-current">
+                          <small>FIRST FORECAST VALUE</small>
+                          <strong>
+                            {aqiForecast[0].aqi ?? "N/A"}
+                          </strong>
+                          <span>US AQI</span>
+                        </div>
+
+                        <div className="aqi-hourly-list">
+                          {aqiForecast.map((item) => (
+                            <div className="aqi-hour-row" key={item.time}>
+                              <span>
+                                {new Date(item.time).toLocaleTimeString(
+                                  "en-IN",
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  }
+                                )}
+                              </span>
+
+                              <strong>
+                                {item.aqi ?? "N/A"}
+                              </strong>
+
+                              <small>
+                                PM2.5: {item.pm25 ?? "N/A"} µg/m³
+                              </small>
+
+                              <small>
+                                PM10: {item.pm10 ?? "N/A"} µg/m³
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+
+                        <p className="aqi-note">
+                          Model-based US AQI forecast, not official CPCB AQI.
+                          Forecast resolution and accuracy vary by location.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+
               </aside>
             </section>
 

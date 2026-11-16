@@ -1,10 +1,8 @@
 
 const API_BASE_URL = "https://heatsafe-ai.onrender.com";
 
-// Local backend during development; Render after deployment.
-export const API_URL = import.meta.env.DEV
-  ? "http://127.0.0.1:8000"
-  : API_BASE_URL;
+// Always connect to the deployed Render backend.
+export const API_URL = API_BASE_URL;
 
 
 // ==========================================
@@ -162,4 +160,41 @@ export async function predictRisk(input) {
       population_density: Number(input.population_density),
     }),
   });
+}
+
+
+// ==========================================
+// 24-HOUR AQI FORECAST
+// ==========================================
+
+export async function getAQIForecast(latitude, longitude) {
+  const params = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    hourly: "us_aqi,pm2_5,pm10",
+    forecast_hours: "24",
+    timezone: "auto",
+  });
+
+  const url =
+    `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error("Unable to fetch AQI forecast.");
+  }
+
+  const data = await response.json();
+
+  if (!data.hourly || !data.hourly.time) {
+    throw new Error("Invalid AQI forecast data received.");
+  }
+
+  return data.hourly.time.map((time, index) => ({
+    time,
+    aqi: data.hourly.us_aqi?.[index] ?? null,
+    pm25: data.hourly.pm2_5?.[index] ?? null,
+    pm10: data.hourly.pm10?.[index] ?? null,
+  }));
 }

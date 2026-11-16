@@ -822,3 +822,139 @@ select {
     padding: 13px;
   }
 }
+
+/* ==========================================
+   AQI FORECAST PANEL
+========================================== */
+
+.aqi-panel {
+  margin-top: 22px;
+  padding: 18px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.aqi-panel .panel-heading {
+  margin-bottom: 14px;
+}
+
+.aqi-panel h3 {
+  font-size: 17px;
+  color: #172554;
+  margin: 0 0 5px;
+}
+
+.aqi-panel .panel-heading p {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+}
+
+.aqi-panel .model-status {
+  font-size: 11px;
+  margin-bottom: 16px;
+}
+
+.aqi-message {
+  padding: 14px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.aqi-error {
+  padding: 12px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.aqi-current {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 15px;
+}
+
+.aqi-current small {
+  font-size: 10px;
+  color: #64748b;
+  letter-spacing: 1px;
+}
+
+.aqi-current strong {
+  font-size: 38px;
+  color: #1e293b;
+  margin: 5px 0;
+}
+
+.aqi-current span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.aqi-hourly-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.aqi-hour-row {
+  display: grid;
+  grid-template-columns: 65px 42px 1fr 1fr;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.aqi-hour-row span {
+  font-size: 11px;
+  color: #475569;
+}
+
+.aqi-hour-row strong {
+  font-size: 14px;
+  color: #172554;
+}
+
+.aqi-hour-row small {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.aqi-note {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #64748b;
+  margin-top: 14px;
+}
+
+/* Responsive AQI panel */
+
+@media (max-width: 600px) {
+  .aqi-panel {
+    padding: 13px;
+  }
+
+  .aqi-hour-row {
+    grid-template-columns: 55px 35px 1fr;
+  }
+
+  .aqi-hour-row small:last-child {
+    display: none;
+  }
+}
